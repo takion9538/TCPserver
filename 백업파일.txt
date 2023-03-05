@@ -1,0 +1,351 @@
+Server
+
+from socket import *
+import cx_Oracle
+from cryptography.fernet import Fernet
+
+key = b'crNz2jnaPI_OKmA8dj-mLywgFTeMw4WLIlCDZMkUulo='
+fernet = Fernet(key)
+
+oracleid = "budi"
+oraclepassword = "1234"
+count = 0
+
+con = cx_Oracle.connect(oracleid, oraclepassword, "localhost:1521/XE", encoding="UTF-8")
+cursor = con.cursor()
+
+host = "127.0.0.1"
+port = 8800
+
+serverSocket = socket(AF_INET, SOCK_STREAM)
+serverSocket.bind((host, port))
+serverSocket.listen(10)
+print("waiting")
+
+connectionSocket, addr = serverSocket.accept()
+print(str(addr), "connected")
+
+data = connectionSocket.recv(1024)
+print(data.decode('utf-8'))
+
+connectionSocket.send('connected'.encode('utf-8'))
+
+connection = "client connected"
+if data != connection:
+    serverSocket.close()
+
+while True :
+
+    data = connectionSocket.recv(1024)
+    data = data.decode('utf-8')
+
+    if data == 'login' :
+
+        connectionSocket.send('login'.encode('utf-8'))
+        id = connectionSocket.recv(1024)
+        id = fernet.decrypt(id).decode('utf-8')
+        pw = connectionSocket.recv(1024)
+        pw = fernet.decrypt(pw).decode('utf-8')
+
+        cursor.execute(f"SELECT * FROM LOGIN")
+
+        tf = False
+        for row in cursor :
+            if row[0] == id :
+                tf = True
+
+        if tf:
+            cursor.execute(f"SELECT * FROM LOGIN WHERE id = '{id}'")
+            out_data = cursor.fetchone()
+            out_id = out_data[0]
+            out_pw = out_data[1]
+
+            if pw == out_pw:
+                print('login success')
+                connectionSocket.send('login success'.encode('utf-8'))
+
+                data = connectionSocket.recv(1024)
+                data = data.decode('utf-8')
+                if data == 'logout' :
+                    print("logout success")
+                    count = 0
+                    print("wrong =", count)
+
+            else:
+                print('login failed')
+                connectionSocket.send('login failed'.encode('utf-8'))
+                count += 1
+                print('wrong =', count)
+        else :
+            print('login failed')
+            connectionSocket.send('login failed'.encode('utf-8'))
+            count += 1
+            print(count)
+
+        if count == 5 :
+            serverSocket.close()
+
+    elif data == 'sign up' :
+        connectionSocket.send('sign up'.encode('utf-8'))
+        print('sign up')
+
+        id = connectionSocket.recv(1024)
+        id = fernet.decrypt(id)
+        id = id.decode('utf-8')
+
+        cursor.execute(f"SELECT * FROM LOGIN")
+
+        tf = False
+        for row in cursor:
+            if row[0] == id:
+                tf = True
+
+        if tf:
+            connectionSocket.send('disabled'.encode('utf-8'))
+            print('disabled')
+        else:
+            connectionSocket.send('able'.encode('utf-8'))
+            print('able')
+
+        id = connectionSocket.recv(1024)
+        id = fernet.decrypt(id).decode('utf-8')
+        pw = connectionSocket.recv(1024)
+        pw = fernet.decrypt(pw).decode('utf-8')
+
+        cursor.execute(f"INSERT INTO LOGIN VALUES ('{id}', '{pw}')")
+        con.commit()
+
+        connectionSocket.send('signed up'.encode('utf-8'))
+
+Client
+
+import tkinter as tk
+from socket import *
+from cryptography.fernet import Fernet
+
+key = b'crNz2jnaPI_OKmA8dj-mLywgFTeMw4WLIlCDZMkUulo='
+fernet = Fernet(key)
+
+ip = "127.0.0.1"
+port = 8800
+addr = (ip, port)
+
+clientSocket = socket(AF_INET, SOCK_STREAM)
+clientSocket.connect(addr)
+
+print("connected")
+clientSocket.send("client connected".encode('utf-8'))
+
+data = clientSocket.recv(1024)
+print(data.decode('utf-8'))
+
+window = tk.Tk()
+window.title("login")
+window.geometry("640x400+100+100")
+window.resizable(False, False)
+
+idLabel = tk.Label(window,
+    text="ID",
+    width=8,
+    height=1,
+    font=('맑은 고딕', 16, 'bold'),
+    bg='white',
+    fg='black')
+idLabel.grid(row=0, column=0, padx=10, pady=10)
+
+pwLabel = tk.Label(window,
+    text="password",
+    width=8,
+    height=1,
+    font=('맑은 고딕', 16, 'bold'),
+    bg='white',
+    fg='black')
+pwLabel.grid(row=1, column=0, padx=10, pady=10)
+
+idEntry = tk.Entry(window,
+    width=8,
+    font=('맑은 고딕', 16, 'bold'),
+    bg='white',
+    fg='black')
+idEntry.grid(row=0, column=1, padx=10, pady=10)
+
+pwEntry = tk.Entry(window,
+    width=8,
+    font=('맑은 고딕', 16, 'bold'),
+    bg='white',
+    fg='black')
+pwEntry.grid(row=1, column=1, padx=10, pady=10)
+
+def onClick():
+    clientSocket.send('login'.encode('utf-8'))
+    clientSocket.recv(1024)
+
+    id = idEntry.get()
+    pw = pwEntry.get()
+
+    clientSocket.send(fernet.encrypt(id.encode('utf-8')))
+    clientSocket.send(fernet.encrypt(pw.encode('utf-8')))
+
+    data = clientSocket.recv(1024)
+    print(data.decode('utf-8'))
+
+    if data.decode('utf-8') == 'login success' :
+        windowlogin = tk.Tk()
+        windowlogin.title("login")
+        windowlogin.geometry("400x200+100+100")
+        windowlogin.resizable(False, False)
+        loginLabel = tk.Label(windowlogin,
+                                text="Login Success!",
+                                width=14,
+                                height=2,
+                                font=('맑은 고딕', 16, 'bold'),
+                                bg='white',
+                                fg='black')
+        loginLabel.grid(row=0, column=0, padx=10, pady=10)
+
+        logoutButton = tk.Button(windowlogin,
+                                width=6,
+                                font=('맑은 고딕', 12, 'bold'),
+                                text='logout',
+                                bg='white',
+                                command=lambda:[clientSocket.send('logout'.encode('utf-8')),
+                                                windowlogin.destroy(),
+                                                print('logout success')])
+        logoutButton.grid(row=1, column=0, padx=10, pady=10)
+
+        windowlogin.mainloop()
+
+loginButton = tk.Button(window,
+    width=6,
+    font=('맑은 고딕', 12, 'bold'),
+    text='Login',
+    bg='white',
+    command=onClick)
+loginButton.grid(row=1, column=3, padx=10, pady=10)
+
+findButton = tk.Button(window,
+    width=6,
+    font=('맑은 고딕', 12, 'bold'),
+    text='find',
+    bg='white')
+findButton.grid(row=2, column=1, padx=10, pady=10)
+
+def SignUp() :
+    clientSocket.send('sign up'.encode('utf-8'))
+    clientSocket.recv(1024)
+
+    windowSign = tk.Tk()
+    windowSign.title("login")
+    windowSign.geometry("400x200+100+100")
+    windowSign.resizable(False, False)
+    signIdLabel = tk.Label(windowSign,
+                       text="ID",
+                       width=8,
+                       height=1,
+                       font=('맑은 고딕', 16, 'bold'),
+                       bg='white',
+                       fg='black')
+    signIdLabel.grid(row=0, column=0, padx=10, pady=10)
+
+    signPwLabel = tk.Label(windowSign,
+                        text="password",
+                        width=8,
+                        height=1,
+                        font=('맑은 고딕', 16, 'bold'),
+                        bg='white',
+                        fg='black')
+    signPwLabel.grid(row=1, column=0, padx=10, pady=10)
+
+    signIdText = tk.Entry(windowSign,
+                        width=8,
+                        font=('맑은 고딕', 16, 'bold'),
+                        bg='white',
+                        fg='black')
+    signIdText.grid(row=0, column=1, padx=10, pady=10)
+
+    signPwText = tk.Entry(windowSign,
+                       width=8,
+                       font=('맑은 고딕', 16, 'bold'),
+                       bg='white',
+                       fg='black')
+    signPwText.grid(row=1, column=1, padx=10, pady=10)
+
+    def SignIn() :
+        id = signIdText.get()
+        pw = signPwText.get()
+        clientSocket.send(fernet.encrypt(id.encode('utf-8'))),
+        clientSocket.send(fernet.encrypt(pw.encode('utf-8'))),
+        signInButton.configure(state='disabled'),
+        clientSocket.recv(1024),
+        print('signed up')
+
+
+    signInButton = tk.Button(windowSign,
+                           width=7,
+                           font=('맑은 고딕', 12, 'bold'),
+                           text='Sign In',
+                           bg='white',
+                           state='disabled',
+                           command=SignIn)
+    signInButton.grid(row=3, column=0, padx=10, pady=10)
+
+    def CheckUnique() :
+        id = signIdText.get()
+        id = str(id)
+
+        clientSocket.send(fernet.encrypt(id.encode('utf-8')))
+        check = clientSocket.recv(1024)
+        check = check.decode('utf-8')
+
+        if check == 'able':
+            signIdText.configure(state='disabled')
+            checkButton.configure(state='disabled')
+            signInButton.configure(state='normal')
+
+            windowAble = tk.Tk()
+            windowAble.title("Able")
+            windowAble.geometry("200x100+100+100")
+            windowAble.resizable(False, False)
+
+            ableLabel = tk.Label(windowAble,
+                                     text="Able",
+                                     width=8,
+                                     height=1,
+                                     font=('맑은 고딕', 16, 'bold'),
+                                     bg='white',
+                                     fg='black')
+            ableLabel.grid(row=0, column=0, padx=10, pady=10)
+
+        else :
+            windowDisabled = tk.Tk()
+            windowDisabled.title("Disabled")
+            windowDisabled.geometry("200x100+100+100")
+            windowDisabled.resizable(False, False)
+
+            DisabledLabel = tk.Label(windowDisabled,
+                                   text="Disabled",
+                                   width=8,
+                                   height=1,
+                                   font=('맑은 고딕', 16, 'bold'),
+                                   bg='white',
+                                   fg='black')
+            DisabledLabel.grid(row=0, column=0, padx=10, pady=10)
+
+    checkButton = tk.Button(windowSign,
+                        width=6,
+                        font=('맑은 고딕', 12, 'bold'),
+                        text='check',
+                        bg='white',
+                        command=CheckUnique)
+    checkButton.grid(row=0, column=2, padx=10, pady=10)
+
+signupButton = tk.Button(window,
+    width=6,
+    font=('맑은 고딕', 12, 'bold'),
+    text='Sign Up',
+    bg='white',
+    command=SignUp)
+signupButton.grid(row=2, column=0, padx=10, pady=10)
+
+window.mainloop()
+
